@@ -1123,7 +1123,7 @@ function OrdersTab({ orders, onChange }: { orders: Order[]; onChange: () => void
     const rows = visible.map((o) => ({
       Name: o.customer_name || "Guest",
       Number: o.customer_phone || "",
-      "Type of Order": o.order_type === "non-whatsapp" ? "Non-WhatsApp Order" : o.order_type === "email" ? "Email Order" : "WhatsApp Order",
+      "Type of Order": o.order_type === "non-whatsapp" ? "Direct Order" : o.order_type === "email" ? "Email Order" : "WhatsApp Order",
       "Products Ordered": (o.items || []).map((i) => `${i.name} x${i.qty}`).join(", "),
       "Total Amount": `KSh ${Number(o.total).toLocaleString("en-KE")}`,
       Progress: trackingLabel(o.tracking_status),
@@ -1152,7 +1152,7 @@ function OrdersTab({ orders, onChange }: { orders: Order[]; onChange: () => void
     { id: "all", label: "All Orders" },
     { id: "whatsapp", label: "WhatsApp Orders" },
     { id: "email", label: "Email Orders" },
-    { id: "non-whatsapp", label: "Non-WhatsApp Orders" },
+    { id: "non-whatsapp", label: "Direct Orders" },
     { id: "pending", label: "Pending Potential" },
     { id: "approved", label: "Approved Real" },
     { id: "cancelled", label: "Cancelled" },
@@ -1166,7 +1166,7 @@ function OrdersTab({ orders, onChange }: { orders: Order[]; onChange: () => void
         { label: "Total", value: summary.total },
         { label: "WhatsApp", value: summary.whatsapp },
         { label: "Email", value: summary.email },
-        { label: "Non-WhatsApp", value: summary.non },
+        { label: "Direct", value: summary.non },
         { label: "Confirmed", value: summary.confirmed },
         { label: "Pending", value: summary.pending },
         { label: "Delivered", value: summary.delivered },
@@ -1202,7 +1202,7 @@ function OrdersTab({ orders, onChange }: { orders: Order[]; onChange: () => void
               <td className="px-4 py-3 whitespace-nowrap text-xs">{new Date(o.created_at).toLocaleDateString()}</td>
               <td className="px-4 py-3">
                 <span className={`rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase ${o.order_type === "non-whatsapp" ? "bg-blue-100 text-blue-700" : o.order_type === "email" ? "bg-amber-100 text-amber-700" : "bg-emerald-100 text-emerald-700"}`}>
-                  {o.order_type === "non-whatsapp" ? "Non-WhatsApp" : o.order_type === "email" ? "Email" : "WhatsApp"}
+                  {o.order_type === "non-whatsapp" ? "Direct" : o.order_type === "email" ? "Email" : "WhatsApp"}
                 </span>
               </td>
               <td className="px-4 py-3">{o.customer_name || "Guest"}<div className="text-xs text-muted-foreground">{o.customer_phone}</div></td>
