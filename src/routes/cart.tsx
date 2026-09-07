@@ -1,11 +1,10 @@
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
-import { Minus, Plus, Trash2, ShoppingBag, FileText, Mail } from "lucide-react";
-import { WhatsAppIcon } from "@/components/icons/WhatsAppIcon";
+import { Minus, Plus, Trash2, ShoppingBag, Package } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { SectionHeader } from "@/components/SectionHeader";
 import { formatKES } from "@/lib/products";
-import { useCart, useAuth, WHATSAPP_NUMBER, ensureSupabaseSession, mailtoOrderLink } from "@/lib/store";
+import { useCart, useAuth, ensureSupabaseSession } from "@/lib/store";
 import { logCartOrders } from "@/lib/business";
 import {
   getReferralCode,
@@ -20,7 +19,7 @@ import { PhoneCaptureModal } from "@/components/PhoneCaptureModal";
 import { WhatsAppChannelCTA } from "@/components/WhatsAppChannelCTA";
 
 export const Route = createFileRoute("/cart")({
-  head: () => ({ meta: [{ title: "Cart — Meridian Express" }, { name: "description", content: "Review your cart and checkout via WhatsApp." }] }),
+  head: () => ({ meta: [{ title: "Cart — Meridian Express" }, { name: "description", content: "Review your cart and place your order." }] }),
   component: CartPage,
 });
 
@@ -33,7 +32,7 @@ function CartPage() {
   const [refInput, setRefInput] = useState<string>("");
   const [refStatus, setRefStatus] = useState<"idle" | "checking" | "invalid">("idle");
   const [placing, setPlacing] = useState(false);
-  const [orderChannel, setOrderChannel] = useState<"whatsapp" | "email" | null>(null);
+  const [showGuestModal, setShowGuestModal] = useState(false);
 
   useEffect(() => {
     const stored = getReferralCode();
@@ -67,83 +66,88 @@ function CartPage() {
       )
     : 0;
 
-  const buildMessage = (phone: string, customerName?: string | null, code?: string | null, agentName?: string | null, agentPhone?: string | null, channel: "whatsapp" | "email" = "whatsapp") => {
-    const lines = detailed.map((i) => `• ${i.product.name} x${i.qty} — ${formatKES(i.subtotal)}`);
-    const refBlock = code
-      ? `Referral Code: ${code}\nReferred By: ${agentName ?? "-"}\nAgent Phone Number: ${agentPhone ?? "-"}\n`
-      : "";
-    return `Hello Meridian Express,\n\n` +
-      `I would like to continue with my order.\n\n` +
-      `Customer Name: ${customerName ?? "-"}\n` +
-      `Customer Phone: ${phone}\n` +
-      refBlock +
-      `\nOrder Details:\n${lines.join("\n")}\n\nTotal: ${formatKES(total)}\nOrder Type: ${channel === "email" ? "Email Order" : "WhatsApp Order"}\n\n` +
-      `Please send me the availability and next steps.`;
-  };
-
   const buildItems = () => detailed.map(({ product, qty, subtotal }) => ({
     id: product.id, name: product.name, qty, price: product.price, subtotal,
   }));
 
-  const onOrderClick = (channel: "whatsapp" | "email") => () => setOrderChannel(channel);
-  const onOrderConfirm = ({ phone, name, referralAgent }: { phone: string; name: string; referralCode: string | null; referralAgent: { name: string; phone: string; code: string } | null }) => {
-    const channel = orderChannel ?? "whatsapp";
-    setOrderChannel(null);
-    const customerName = name || user?.name || null;
-    logCartOrders(detailed, { name: customerName ?? undefined, phone });
-    const effectiveCode = referralAgent?.code ?? agent?.referral_code ?? null;
-    const effectiveAgentName = referralAgent?.name ?? agent?.full_name ?? null;
-    const effectiveAgentPhone = referralAgent?.phone ?? null;
-    supabase.from("sales_orders").insert({
-      customer_name: customerName,
-      customer_phone: phone,
-      customer_email: user?.email ?? null,
-      account_type: user?.accountType ?? "guest",
-      items: buildItems(), total,
-      referral_code: effectiveCode,
+  /** Save the order straight to the admin dashboard (sales_orders) — no WhatsApp/email redirect. */
+  const placeOrder = async (opts: {
+    customerName: string | null;
+    phone: string | null;
+    email: string | null;
+    accountType: string;
+    userId?: string | null;
+    referralCode?: string | null;
+    agentName?: string | null;
+  }) => {
+    logCartOrders(detailed, { name: opts.customerName ?? undefined, phone: opts.phone ?? undefined });
+    const { error } = await supabase.from("sales_orders").insert({
+      customer_name: opts.customerName,
+      customer_phone: opts.phone,
+      customer_email: opts.email,
+      account_type: opts.accountType,
+      items: buildItems(),
+      total,
+      referral_code: opts.referralCode ?? null,
       agent_id: agent?.id ?? null,
-      agent_name: effectiveAgentName,
+      agent_name: opts.agentName ?? null,
       commission_amount: commission,
-      order_type: channel,
+      order_type: "non-whatsapp",
       tracking_status: "order_received",
-    } as never).then(() => {}, () => {});
-    const msg = buildMessage(phone, customerName, effectiveCode, effectiveAgentName, effectiveAgentPhone, channel);
-    if (channel === "email") {
-      window.location.href = mailtoOrderLink("Order from Meridian Express Cart", msg);
+      user_id: opts.userId ?? null,
+    } as never);
+    return error;
+  };
+
+  const onPlaceOrderClick = () => {
+    if (user) {
+      submitForUser();
     } else {
-      window.open(`https://wa.me/${WHATSAPP_NUMBER}?text=${encodeURIComponent(msg)}`, "_blank", "noopener");
+      setShowGuestModal(true);
     }
   };
 
-  const onNonWhatsAppCheckout = async () => {
-    if (!user) {
-      toast.message("Please create an account or log in to place and track a non-WhatsApp order.");
-      nav({ to: "/auth" });
-      return;
-    }
+  const submitForUser = async () => {
+    if (!user) return;
     setPlacing(true);
     try {
       const uid = await ensureSupabaseSession(user.email);
-      logCartOrders(detailed, { name: user.name, phone: user.phone });
-      const { error } = await supabase.from("sales_orders").insert({
-        customer_name: user.name ?? null,
-        customer_phone: user.phone ?? null,
-        customer_email: user.email,
-        account_type: user.accountType,
-        items: buildItems(),
-        total,
-        referral_code: agent?.referral_code ?? null,
-        agent_id: agent?.id ?? null,
-        agent_name: agent?.full_name ?? null,
-        commission_amount: commission,
-        order_type: "non-whatsapp",
-        tracking_status: "order_received",
-        user_id: uid ?? null,
-      } as never);
+      const error = await placeOrder({
+        customerName: user.name ?? null,
+        phone: user.phone ?? null,
+        email: user.email,
+        accountType: user.accountType,
+        userId: uid,
+        referralCode: agent?.referral_code ?? null,
+        agentName: agent?.full_name ?? null,
+      });
       if (error) throw error;
       toast.success("Order placed! Track its progress in My Orders.");
       clear();
       nav({ to: "/my-orders" });
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Could not place order");
+    } finally { setPlacing(false); }
+  };
+
+  const onGuestConfirm = async ({ phone, name, referralAgent, referralCode }: { phone: string; name: string; referralCode: string | null; referralAgent: { name: string; phone: string; code: string } | null }) => {
+    setShowGuestModal(false);
+    setPlacing(true);
+    try {
+      const effectiveCode = referralAgent?.code ?? agent?.referral_code ?? referralCode ?? null;
+      const effectiveAgentName = referralAgent?.name ?? agent?.full_name ?? null;
+      const error = await placeOrder({
+        customerName: name || null,
+        phone,
+        email: null,
+        accountType: "guest",
+        referralCode: effectiveCode,
+        agentName: effectiveAgentName,
+      });
+      if (error) throw error;
+      toast.success("Order placed! We'll contact you shortly to confirm.");
+      clear();
+      nav({ to: "/shop" });
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Could not place order");
     } finally { setPlacing(false); }
@@ -208,46 +212,29 @@ function CartPage() {
             </div>
           )}
           <div className="mt-4 flex justify-between text-sm"><span className="text-muted-foreground">Subtotal</span><span className="font-medium">{formatKES(total)}</span></div>
-          <div className="mt-1 flex justify-between text-sm"><span className="text-muted-foreground">Delivery</span><span className="font-medium">Confirmed on WhatsApp</span></div>
+          <div className="mt-1 flex justify-between text-sm"><span className="text-muted-foreground">Delivery</span><span className="font-medium">Confirmed after order review</span></div>
           <div className="mt-3 border-t border-border pt-3 flex justify-between"><span className="font-semibold">Total</span><span className="text-lg font-bold text-primary">{formatKES(total)}</span></div>
-          <button
-            type="button"
-            onClick={onOrderClick("whatsapp")}
-            className="mt-5 inline-flex w-full items-center justify-center gap-2 rounded-xl px-4 py-4 text-base font-semibold text-white shadow-hover transition hover:opacity-90"
-            style={{ background: "oklch(0.62 0.17 150)" }}
-          >
-            <WhatsAppIcon className="h-5 w-5" /> Order with WhatsApp
-          </button>
-          <button
-            type="button"
-            onClick={onOrderClick("email")}
-            className="mt-3 inline-flex w-full items-center justify-center gap-2 rounded-xl px-4 py-4 text-base font-semibold text-white shadow-hover transition hover:opacity-90"
-            style={{ background: "var(--navy)" }}
-          >
-            <Mail className="h-5 w-5" /> Order by Email
-          </button>
           <Button
             type="button"
-            variant="outline"
             disabled={placing}
-            onClick={onNonWhatsAppCheckout}
-            className="mt-3 w-full rounded-xl"
+            onClick={onPlaceOrderClick}
+            className="mt-5 w-full rounded-xl py-6 text-base font-semibold"
           >
-            <FileText className="h-4 w-4" /> {placing ? "Placing order…" : "Non-WhatsApp Order"}
+            <Package className="h-5 w-5" /> {placing ? "Placing order…" : "Place Order"}
           </Button>
           <p className="mt-2 text-[11px] text-muted-foreground text-center">
-            Use this option if you want to track your order through your account.
+            {user
+              ? "Your order goes straight to our team, and you can track it in My Orders."
+              : "We'll ask for your name and phone number so our team can confirm your order."}
           </p>
           <Link to="/shop" className="mt-3 block text-center text-sm text-muted-foreground hover:text-primary">Continue shopping</Link>
         </aside>
       </div>
       <PhoneCaptureModal
-        open={orderChannel !== null}
-        onClose={() => setOrderChannel(null)}
-        onConfirm={onOrderConfirm}
-        confirmLabel={orderChannel === "email" ? "Continue to Email" : "Continue to WhatsApp"}
-        defaultName={user?.name ?? ""}
-        defaultPhone={user?.phone ?? ""}
+        open={showGuestModal}
+        onClose={() => setShowGuestModal(false)}
+        onConfirm={onGuestConfirm}
+        confirmLabel="Place Order"
         defaultReferralCode={refInput}
       />
     </div>
