@@ -1,17 +1,13 @@
 import { Link, useNavigate } from "@tanstack/react-router";
-import { Heart, FileText, MapPin, Mail } from "lucide-react";
-import { WhatsAppIcon } from "@/components/icons/WhatsAppIcon";
+import { Heart, FileText, MapPin, ShoppingCart } from "lucide-react";
 import { formatKES, categoryName, type Product } from "@/lib/products";
-import { useCart, useAuth, logWhatsAppOrder, logEmailOrder, mailtoOrderLink, WHATSAPP_NUMBER } from "@/lib/store";
+import { useCart, useAuth } from "@/lib/store";
 import { toast } from "sonner";
-import { useState } from "react";
-import { PhoneCaptureModal } from "@/components/PhoneCaptureModal";
 
 export function ProductCard({ product, index = 0 }: { product: Product; index?: number }) {
   const { add } = useCart();
   const { user } = useAuth();
   const nav = useNavigate();
-  const [orderChannel, setOrderChannel] = useState<"whatsapp" | "email" | null>(null);
 
   const onNonWa = () => {
     if (!user) {
@@ -22,50 +18,10 @@ export function ProductCard({ product, index = 0 }: { product: Product; index?: 
     add(product.id);
     nav({ to: "/cart" });
   };
-  const onWaClick = (e: React.MouseEvent) => {
+  const onAddToCart = (e: React.MouseEvent) => {
     e.preventDefault();
-    setOrderChannel("whatsapp");
-  };
-  const onEmailClick = (e: React.MouseEvent) => {
-    e.preventDefault();
-    setOrderChannel("email");
-  };
-  const onPhoneConfirm = ({ phone, name, referralCode, referralAgent }: { phone: string; name: string; referralCode: string | null; referralAgent: { name: string; phone: string; code: string } | null }) => {
-    const channel = orderChannel;
-    setOrderChannel(null);
-    const customerName = name || user?.name;
-    const logInput = {
-      items: [{ id: product.id, name: product.name, qty: 1, price: product.price, subtotal: product.price }],
-      total: product.price,
-      customer: { name: customerName, phone, email: user?.email, accountType: user?.accountType ?? "guest" },
-      referralCode: referralAgent ? referralAgent.code : (referralCode ?? null),
-      agentName: referralAgent?.name ?? null,
-      agentPhone: referralAgent?.phone ?? null,
-    };
-    const orderDetails =
-      `Product: ${product.name}\n` +
-      `Category: ${categoryName(product.category)}\n` +
-      `Price: KSh ${product.price.toLocaleString("en-KE")}\n` +
-      `Quantity: 1\n` +
-      `Order Type: ${channel === "email" ? "Email Order" : "WhatsApp Order"}`;
-    const refBlock = referralAgent
-      ? `Referral Code: ${referralAgent.code}\nReferred By: ${referralAgent.name}\nAgent Phone Number: ${referralAgent.phone}\n`
-      : "";
-    const msg =
-      `Hello Meridian Express,\n\n` +
-      `I would like to continue with my order.\n\n` +
-      `Customer Name: ${customerName || "-"}\n` +
-      `Customer Phone: ${phone}\n` +
-      refBlock +
-      `\nOrder Details:\n${orderDetails}\n\n` +
-      `Please send me the availability and next steps.`;
-    if (channel === "email") {
-      logEmailOrder(logInput);
-      window.location.href = mailtoOrderLink(`Order: ${product.name}`, msg);
-    } else {
-      logWhatsAppOrder(logInput);
-      window.open(`https://wa.me/${WHATSAPP_NUMBER}?text=${encodeURIComponent(msg)}`, "_blank", "noopener");
-    }
+    add(product.id);
+    toast.success(`${product.name} added to cart`);
   };
   return (
     <article
@@ -114,19 +70,11 @@ export function ProductCard({ product, index = 0 }: { product: Product; index?: 
         <div className="mt-4 flex flex-col gap-2">
           <button
             type="button"
-            onClick={onWaClick}
+            onClick={onAddToCart}
             className="inline-flex w-full items-center justify-center gap-2 rounded-full px-4 py-2.5 text-white text-sm font-semibold shadow-hover transition hover:opacity-90"
-            style={{ background: "oklch(0.62 0.17 150)" }}
-          >
-            <WhatsAppIcon className="h-4 w-4" /> Order with WhatsApp
-          </button>
-          <button
-            type="button"
-            onClick={onEmailClick}
-            className="inline-flex w-full items-center justify-center gap-2 rounded-full px-4 py-2.5 text-sm font-semibold shadow-hover transition hover:opacity-90 text-white"
             style={{ background: "var(--navy)" }}
           >
-            <Mail className="h-4 w-4" /> Order by Email
+            <ShoppingCart className="h-4 w-4" /> Add to Cart
           </button>
           <button
             type="button"
@@ -140,14 +88,6 @@ export function ProductCard({ product, index = 0 }: { product: Product; index?: 
           </span>
         </div>
       </div>
-      <PhoneCaptureModal
-        open={orderChannel !== null}
-        onClose={() => setOrderChannel(null)}
-        onConfirm={onPhoneConfirm}
-        confirmLabel={orderChannel === "email" ? "Continue to Email" : "Continue to WhatsApp"}
-        defaultName={user?.name ?? ""}
-        defaultPhone={user?.phone ?? ""}
-      />
     </article>
   );
 }
