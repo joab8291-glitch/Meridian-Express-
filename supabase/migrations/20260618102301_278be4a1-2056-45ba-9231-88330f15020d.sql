@@ -1,0 +1,1 @@
+REVOKE ALL ON FUNCTION public.validate_sales_order_insert() FROM PUBLIC, anon, authenticated;

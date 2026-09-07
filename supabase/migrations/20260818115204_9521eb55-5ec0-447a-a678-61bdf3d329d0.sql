@@ -1,0 +1,1 @@
+ALTER TABLE public.mpesa_payments ADD CONSTRAINT mpesa_payments_checkout_request_id_unique UNIQUE (checkout_request_id);
