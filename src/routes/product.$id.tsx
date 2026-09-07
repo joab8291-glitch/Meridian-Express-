@@ -3,14 +3,15 @@ import { useState } from "react";
 import { ChevronLeft, Minus, Plus, MapPin, Store, Star, FileText, Mail } from "lucide-react";
 import { WhatsAppIcon } from "@/components/icons/WhatsAppIcon";
 import { categoryName, formatKES, getProduct } from "@/lib/products";
+import { fetchApprovedDbProductById } from "@/lib/catalog";
 import { useCart, useAuth, logWhatsAppOrder, logEmailOrder, mailtoOrderLink, WHATSAPP_NUMBER } from "@/lib/store";
 import { toast } from "sonner";
 import { PhoneCaptureModal } from "@/components/PhoneCaptureModal";
 import { WhatsAppChannelCTA } from "@/components/WhatsAppChannelCTA";
 
 export const Route = createFileRoute("/product/$id")({
-  loader: ({ params }) => {
-    const product = getProduct(params.id);
+  loader: async ({ params }) => {
+    const product = getProduct(params.id) ?? (await fetchApprovedDbProductById(params.id));
     if (!product) throw notFound();
     return { product };
   },
