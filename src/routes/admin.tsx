@@ -256,6 +256,9 @@ function ProductsTabInner({ products, onChange }: { products: Product[]; onChang
       <MarketingExport products={products} />
       <CategoryPricingPanel onChange={onChange} />
       <ProductPricingExport products={products} />
+      <AddCategoryPanel />
+      <AddProductPanel />
+      <DbProductsManager />
       <BusinessUploadedProducts />
       <div className="rounded-2xl border border-border bg-card p-5">
         <div className="flex items-center gap-2">
@@ -268,6 +271,292 @@ function ProductsTabInner({ products, onChange }: { products: Product[]; onChang
         {products.map((product) => (
           <CatalogProductEditor key={product.id} product={product} onChange={onChange} />
         ))}
+      </div>
+    </div>
+  );
+}
+
+function AddCategoryPanel() {
+  const [name, setName] = useState("");
+  const [slug, setSlug] = useState("");
+  const [saving, setSaving] = useState(false);
+
+  const autoSlug = (v: string) =>
+    v.trim().toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/(^-|-$)/g, "");
+
+  const submit = async () => {
+    if (!name.trim()) return toast.error("Category name is required");
+    const finalSlug = slug.trim() ? autoSlug(slug) : autoSlug(name);
+    if (!finalSlug) return toast.error("Could not generate a valid slug — try a different name");
+    setSaving(true);
+    const { error } = await supabase
+      .from("categories" as never)
+      .insert({ name: name.trim(), slug: finalSlug, active: true } as never);
+    setSaving(false);
+    if (error) return toast.error(error.message);
+    toast.success(`Category "${name}" added`);
+    setName(""); setSlug("");
+  };
+
+  return (
+    <div className="rounded-2xl border border-border bg-card p-5">
+      <div className="flex items-center gap-2">
+        <Plus className="h-5 w-5 text-primary" />
+        <h2 className="text-lg font-semibold">Add Category</h2>
+      </div>
+      <p className="mt-2 text-sm text-muted-foreground">
+        New categories appear immediately in the shop sidebar and category browser, alongside the built-in ones.
+      </p>
+      <div className="mt-4 grid gap-3 sm:grid-cols-2">
+        <label className="block">
+          <span className="text-xs font-medium text-muted-foreground">Category Name</span>
+          <input value={name} onChange={(e) => setName(e.target.value)} placeholder="e.g. Solar Equipment"
+            className="mt-1 w-full rounded-md border border-border bg-secondary px-3 py-2 text-sm" />
+        </label>
+        <label className="block">
+          <span className="text-xs font-medium text-muted-foreground">Slug (optional — auto-generated if blank)</span>
+          <input value={slug} onChange={(e) => setSlug(e.target.value)} placeholder="solar-equipment"
+            className="mt-1 w-full rounded-md border border-border bg-secondary px-3 py-2 text-sm font-mono" />
+        </label>
+      </div>
+      <div className="mt-4">
+        <Button onClick={submit} disabled={saving}>{saving ? "Adding…" : "Add Category"}</Button>
+      </div>
+    </div>
+  );
+}
+
+type DbCategoryOption = { id: string; slug: string; name: string };
+
+function AddProductPanel() {
+  const [categories, setCategories] = useState<DbCategoryOption[]>([]);
+  const [form, setForm] = useState({
+    title: "", price: "", categoryChoice: "", description: "", longDescription: "",
+    availability: "In Stock" as "In Stock" | "Made to Order",
+    county: "",
+  });
+  const [file, setFile] = useState<File | null>(null);
+  const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    (async () => {
+      const { data } = await supabase.from("categories" as never).select("id,slug,name").eq("active", true).order("sort_order");
+      setCategories((data as unknown as DbCategoryOption[]) || []);
+    })();
+  }, []);
+
+  const submit = async () => {
+    if (!form.title.trim()) return toast.error("Product name is required");
+    const price = Number(form.price);
+    if (!price || price <= 0) return toast.error("Enter a valid price");
+    if (!file) return toast.error("Please choose a product photo");
+    setSaving(true);
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) throw new Error("Not signed in");
+
+      const { data: businessId, error: bizErr } = await supabase.rpc(
+        "get_or_create_direct_business" as never,
+        { _admin_id: user.id } as never,
+      );
+      if (bizErr) throw bizErr;
+
+      const path = `admin/${crypto.randomUUID()}-${file.name.replace(/[^a-zA-Z0-9.\-_]/g, "_")}`;
+      const { error: upErr } = await supabase.storage.from("products").upload(path, file, { upsert: false });
+      if (upErr) throw upErr;
+
+      const category = categories.find((c) => c.id === form.categoryChoice);
+
+      const { data: product, error: prodErr } = await supabase
+        .from("products" as never)
+        .insert({
+          title: form.title.trim(),
+          price_kes: price,
+          category_id: category?.id ?? null,
+          description_short: form.description.trim() || null,
+          description_long: form.longDescription.trim() || null,
+          availability: form.availability,
+          custom_made: form.availability === "Made to Order",
+          county: form.county.trim() || null,
+          business_id: businessId,
+          status: "approved",
+        } as never)
+        .select("id")
+        .single();
+      if (prodErr) throw prodErr;
+
+      const productId = (product as unknown as { id: string }).id;
+      const { error: imgErr } = await supabase.from("product_images" as never).insert({
+        product_id: productId, storage_path: path, is_primary: true, sort_order: 0,
+      } as never);
+      if (imgErr) throw imgErr;
+
+      toast.success(`"${form.title}" added and live on the shop`);
+      setForm({ title: "", price: "", categoryChoice: "", description: "", longDescription: "", availability: "In Stock", county: "" });
+      setFile(null);
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Could not add product");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <div className="rounded-2xl border border-border bg-card p-5">
+      <div className="flex items-center gap-2">
+        <Plus className="h-5 w-5 text-primary" />
+        <h2 className="text-lg font-semibold">Add Product</h2>
+      </div>
+      <p className="mt-2 text-sm text-muted-foreground">
+        Adds a product directly to the live catalog, under a "Meridian Express Direct Catalog" listing — separate from supplier-submitted products.
+      </p>
+      <div className="mt-4 grid gap-3 sm:grid-cols-2">
+        <label className="sm:col-span-2 block">
+          <span className="text-xs font-medium text-muted-foreground">Product Name</span>
+          <input value={form.title} onChange={(e) => setForm({ ...form, title: e.target.value })}
+            className="mt-1 w-full rounded-md border border-border bg-secondary px-3 py-2 text-sm" />
+        </label>
+        <label className="block">
+          <span className="text-xs font-medium text-muted-foreground">Price (KSh)</span>
+          <input type="number" min={0} value={form.price} onChange={(e) => setForm({ ...form, price: e.target.value })}
+            className="mt-1 w-full rounded-md border border-border bg-secondary px-3 py-2 text-sm" />
+        </label>
+        <label className="block">
+          <span className="text-xs font-medium text-muted-foreground">Category</span>
+          <select value={form.categoryChoice} onChange={(e) => setForm({ ...form, categoryChoice: e.target.value })}
+            className="mt-1 w-full rounded-md border border-border bg-secondary px-3 py-2 text-sm">
+            <option value="">— Uncategorized —</option>
+            {categories.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+          </select>
+        </label>
+        <label className="sm:col-span-2 block">
+          <span className="text-xs font-medium text-muted-foreground">Product Photo</span>
+          <input type="file" accept="image/*" onChange={(e) => setFile(e.target.files?.[0] ?? null)}
+            className="mt-1 w-full rounded-md border border-border bg-secondary px-3 py-2 text-sm" />
+        </label>
+        <label className="block">
+          <span className="text-xs font-medium text-muted-foreground">Stock Status</span>
+          <select value={form.availability} onChange={(e) => setForm({ ...form, availability: e.target.value as "In Stock" | "Made to Order" })}
+            className="mt-1 w-full rounded-md border border-border bg-secondary px-3 py-2 text-sm">
+            <option value="In Stock">In Stock</option>
+            <option value="Made to Order">Made to Order</option>
+          </select>
+        </label>
+        <label className="block">
+          <span className="text-xs font-medium text-muted-foreground">County</span>
+          <input value={form.county} onChange={(e) => setForm({ ...form, county: e.target.value })}
+            className="mt-1 w-full rounded-md border border-border bg-secondary px-3 py-2 text-sm" />
+        </label>
+        <label className="sm:col-span-2 block">
+          <span className="text-xs font-medium text-muted-foreground">Short Description</span>
+          <textarea value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })}
+            className="mt-1 min-h-[80px] w-full rounded-md border border-border bg-secondary px-3 py-2 text-sm" />
+        </label>
+        <label className="sm:col-span-2 block">
+          <span className="text-xs font-medium text-muted-foreground">Full Description (optional)</span>
+          <textarea value={form.longDescription} onChange={(e) => setForm({ ...form, longDescription: e.target.value })}
+            className="mt-1 min-h-[80px] w-full rounded-md border border-border bg-secondary px-3 py-2 text-sm" />
+        </label>
+      </div>
+      <div className="mt-4">
+        <Button onClick={submit} disabled={saving}>{saving ? "Adding…" : "Add Product"}</Button>
+      </div>
+    </div>
+  );
+}
+
+type DbProductRow = {
+  id: string; title: string; price_kes: number; status: string;
+  county: string | null; created_at: string; category_id: string | null;
+};
+
+function DbProductsManager() {
+  const [rows, setRows] = useState<DbProductRow[]>([]);
+  const [images, setImages] = useState<Record<string, string>>({});
+  const [categoryNames, setCategoryNames] = useState<Record<string, string>>({});
+  const [loading, setLoading] = useState(true);
+  const [busy, setBusy] = useState<string | null>(null);
+
+  const refresh = async () => {
+    setLoading(true);
+    const [{ data: prods }, { data: cats }, { data: imgs }] = await Promise.all([
+      supabase.from("products" as never)
+        .select("id,title,price_kes,status,county,created_at,category_id")
+        .in("status", ["approved", "archived"])
+        .order("created_at", { ascending: false }),
+      supabase.from("categories" as never).select("id,name"),
+      supabase.from("product_images" as never).select("product_id,storage_path,is_primary"),
+    ]);
+    setRows((prods as unknown as DbProductRow[]) || []);
+    const catMap: Record<string, string> = {};
+    for (const c of (cats as unknown as { id: string; name: string }[]) || []) catMap[c.id] = c.name;
+    setCategoryNames(catMap);
+    const imgMap: Record<string, string> = {};
+    for (const im of (imgs as unknown as { product_id: string; storage_path: string; is_primary: boolean }[]) || []) {
+      if (!imgMap[im.product_id] || im.is_primary) {
+        imgMap[im.product_id] = supabase.storage.from("products").getPublicUrl(im.storage_path).data.publicUrl;
+      }
+    }
+    setImages(imgMap);
+    setLoading(false);
+  };
+  useEffect(() => { refresh(); }, []);
+
+  const toggleArchive = async (row: DbProductRow) => {
+    setBusy(row.id);
+    const nextStatus = row.status === "archived" ? "approved" : "archived";
+    const { error } = await supabase.from("products" as never).update({ status: nextStatus } as never).eq("id", row.id);
+    setBusy(null);
+    if (error) return toast.error(error.message);
+    toast.success(nextStatus === "archived" ? "Product removed from shop" : "Product restored — visible on shop again");
+    refresh();
+  };
+
+  if (loading) return <div className="text-sm text-muted-foreground">Loading store-added products…</div>;
+
+  return (
+    <div className="rounded-2xl border border-border bg-card overflow-hidden">
+      <div className="p-5 border-b border-border">
+        <h2 className="text-lg font-semibold">Store-Added Products ({rows.length})</h2>
+        <p className="mt-1 text-xs text-muted-foreground">Products added directly here, or via a published supplier submission. Removing hides a product from the shop without deleting its order history.</p>
+      </div>
+      <div className="overflow-x-auto">
+        <table className="w-full text-sm">
+          <thead className="bg-secondary text-xs uppercase tracking-wider text-muted-foreground">
+            <tr>
+              <th className="px-4 py-3 text-left">Product</th>
+              <th className="px-4 py-3 text-left">Category</th>
+              <th className="px-4 py-3 text-right">Price</th>
+              <th className="px-4 py-3 text-left">Status</th>
+              <th className="px-4 py-3 text-right">Actions</th>
+            </tr>
+          </thead>
+          <tbody>
+            {rows.length === 0 && <tr><td colSpan={5} className="text-center py-8 text-muted-foreground">No store-added products yet.</td></tr>}
+            {rows.map((r) => (
+              <tr key={r.id} className="border-t border-border">
+                <td className="px-4 py-3">
+                  <div className="flex items-center gap-3">
+                    {images[r.id] && <img src={images[r.id]} alt="" className="h-10 w-10 rounded-md object-cover bg-secondary" />}
+                    <span className="font-medium">{r.title}</span>
+                  </div>
+                </td>
+                <td className="px-4 py-3 text-xs">{r.category_id ? categoryNames[r.category_id] || "—" : "Uncategorized"}</td>
+                <td className="px-4 py-3 text-right">{formatKES(r.price_kes)}</td>
+                <td className="px-4 py-3">
+                  <span className={`rounded-full px-2 py-0.5 text-[10px] font-medium uppercase ${r.status === "approved" ? "bg-primary/10 text-primary" : "bg-secondary text-muted-foreground"}`}>
+                    {r.status === "approved" ? "Live" : "Removed"}
+                  </span>
+                </td>
+                <td className="px-4 py-3 text-right">
+                  <Button size="sm" variant={r.status === "archived" ? "default" : "outline"} disabled={busy === r.id} onClick={() => toggleArchive(r)}>
+                    {busy === r.id ? "…" : r.status === "archived" ? "Restore" : "Remove"}
+                  </Button>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
       </div>
     </div>
   );
