@@ -109,6 +109,12 @@ function Shop() {
     return list;
   }, [q, cat, sort, county, locQ, btype, allProducts]);
 
+  const visibleCategories = getVisibleCategories();
+  const mergedCategories = [
+    ...visibleCategories,
+    ...dbCategories.filter((dc) => !visibleCategories.some((c) => c.slug === dc.slug)),
+  ];
+
   return (
     <div className="mx-auto max-w-7xl px-5 md:px-8 py-10">
       <SectionHeader eyebrow="Shop" title="All Products" subtitle="Browse quality Kamukunji-made items, ready to order." />
@@ -133,11 +139,6 @@ function Shop() {
               </li>
               {mergedCategories.map((c) => {
                 const n = allProducts.filter((p) => p.category === c.slug).length;
-      const visibleCategories = getVisibleCategories();
-  const mergedCategories = [
-    ...visibleCategories,
-    ...dbCategories.filter((dc) => !visibleCategories.some((c) => c.slug === dc.slug)),
-  ];
                 return (
                   <li key={c.slug}>
                     <button onClick={() => setCat(c.slug)} className={`w-full text-left px-2 py-1.5 rounded ${cat === c.slug ? "bg-primary/10 text-primary font-medium" : "hover:bg-secondary"}`}>
