@@ -8,6 +8,7 @@ import { CATEGORIES, categoryName, getCatalogProducts, getVisibleCategories } fr
 import { KENYA_COUNTIES, BUSINESS_TYPES } from "@/lib/kenya";
 import { Combobox } from "@/components/Combobox";
 import type { Product } from "@/lib/products";
+import { fetchApprovedDbProducts, fetchActiveDbCategories, type StoreCategory } from "@/lib/catalog";
 import type { BusinessProduct } from "@/lib/business";
 import { useEffect } from "react";
 
@@ -39,6 +40,7 @@ function Shop() {
   const [locQ, setLocQ] = useState("");
   const [btype, setBtype] = useState("");
   const [allProducts, setAllProducts] = useState<Product[]>(getCatalogProducts());
+  const [dbCategories, setDbCategories] = useState<StoreCategory[]>([]);
 
   // Merge approved business-uploaded products from all known accounts (localStorage).
   useEffect(() => {
@@ -70,6 +72,21 @@ function Shop() {
       });
       setAllProducts([...getCatalogProducts(), ...mapped]);
     } catch { /* ignore */ }
+  }, []);
+
+  // Merge admin/PIA-published database products and categories.
+  useEffect(() => {
+    (async () => {
+      const [dbProducts, cats] = await Promise.all([fetchApprovedDbProducts(), fetchActiveDbCategories()]);
+      setDbCategories(cats);
+      if (dbProducts.length > 0) {
+        setAllProducts((prev) => {
+          const existingIds = new Set(prev.map((p) => p.id));
+          const fresh = dbProducts.filter((p) => !existingIds.has(p.id));
+          return [...prev, ...fresh];
+        });
+      }
+    })();
   }, []);
 
   const filtered = useMemo(() => {
@@ -114,8 +131,13 @@ function Shop() {
                   All Products <span className="text-xs text-muted-foreground">({allProducts.length})</span>
                 </button>
               </li>
-              {getVisibleCategories().map((c) => {
+              {mergedCategories.map((c) => {
                 const n = allProducts.filter((p) => p.category === c.slug).length;
+      const visibleCategories = getVisibleCategories();
+  const mergedCategories = [
+    ...visibleCategories,
+    ...dbCategories.filter((dc) => !visibleCategories.some((c) => c.slug === dc.slug)),
+  ];
                 return (
                   <li key={c.slug}>
                     <button onClick={() => setCat(c.slug)} className={`w-full text-left px-2 py-1.5 rounded ${cat === c.slug ? "bg-primary/10 text-primary font-medium" : "hover:bg-secondary"}`}>
