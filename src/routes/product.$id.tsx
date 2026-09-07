@@ -1,12 +1,10 @@
 import { createFileRoute, Link, notFound, useNavigate } from "@tanstack/react-router";
 import { useState } from "react";
-import { ChevronLeft, Minus, Plus, MapPin, Store, Star, FileText, Mail } from "lucide-react";
-import { WhatsAppIcon } from "@/components/icons/WhatsAppIcon";
+import { ChevronLeft, Minus, Plus, MapPin, Store, Star, FileText, ShoppingCart } from "lucide-react";
 import { categoryName, formatKES, getProduct } from "@/lib/products";
 import { fetchApprovedDbProductById } from "@/lib/catalog";
-import { useCart, useAuth, logWhatsAppOrder, logEmailOrder, mailtoOrderLink, WHATSAPP_NUMBER } from "@/lib/store";
+import { useCart, useAuth } from "@/lib/store";
 import { toast } from "sonner";
-import { PhoneCaptureModal } from "@/components/PhoneCaptureModal";
 import { WhatsAppChannelCTA } from "@/components/WhatsAppChannelCTA";
 
 export const Route = createFileRoute("/product/$id")({
@@ -36,7 +34,6 @@ function ProductPage() {
   const { user } = useAuth();
   const navigate = useNavigate();
   const [qty, setQty] = useState(1);
-  const [orderChannel, setOrderChannel] = useState<"whatsapp" | "email" | null>(null);
 
   const onNonWa = () => {
     if (!user) {
@@ -47,45 +44,9 @@ function ProductPage() {
     add(product.id, qty);
     navigate({ to: "/cart" });
   };
-  const onWaClick = (e: React.MouseEvent) => { e.preventDefault(); setOrderChannel("whatsapp"); };
-  const onEmailClick = (e: React.MouseEvent) => { e.preventDefault(); setOrderChannel("email"); };
-  const onPhoneConfirm = ({ phone, name, referralCode, referralAgent }: { phone: string; name: string; referralCode: string | null; referralAgent: { name: string; phone: string; code: string } | null }) => {
-    const channel = orderChannel;
-    setOrderChannel(null);
-    const subtotal = product.price * qty;
-    const customerName = name || user?.name;
-    const logInput = {
-      items: [{ id: product.id, name: product.name, qty, price: product.price, subtotal }],
-      total: subtotal,
-      customer: { name: customerName, phone, email: user?.email, accountType: user?.accountType ?? "guest" },
-      referralCode: referralAgent ? referralAgent.code : (referralCode ?? null),
-      agentName: referralAgent?.name ?? null,
-      agentPhone: referralAgent?.phone ?? null,
-    };
-    const orderDetails =
-      `Product: ${product.name}\n` +
-      `Category: ${categoryName(product.category)}\n` +
-      `Price: KSh ${product.price.toLocaleString("en-KE")}\n` +
-      `Quantity: ${qty}\n` +
-      `Order Type: ${channel === "email" ? "Email Order" : "WhatsApp Order"}`;
-    const refBlock = referralAgent
-      ? `Referral Code: ${referralAgent.code}\nReferred By: ${referralAgent.name}\nAgent Phone Number: ${referralAgent.phone}\n`
-      : "";
-    const msg =
-      `Hello Meridian Express,\n\n` +
-      `I would like to continue with my order.\n\n` +
-      `Customer Name: ${customerName || "-"}\n` +
-      `Customer Phone: ${phone}\n` +
-      refBlock +
-      `\nOrder Details:\n${orderDetails}\n\n` +
-      `Please send me the availability and next steps.`;
-    if (channel === "email") {
-      logEmailOrder(logInput);
-      window.location.href = mailtoOrderLink(`Order: ${product.name}`, msg);
-    } else {
-      logWhatsAppOrder(logInput);
-      window.open(`https://wa.me/${WHATSAPP_NUMBER}?text=${encodeURIComponent(msg)}`, "_blank", "noopener");
-    }
+  const onAddToCart = () => {
+    add(product.id, qty);
+    toast.success(`${product.name} added to cart`);
   };
 
   return (
@@ -145,19 +106,11 @@ function ProductPage() {
           <div className="mt-6 flex flex-col gap-3 max-w-md">
             <button
               type="button"
-              onClick={onWaClick}
-              className="inline-flex w-full items-center justify-center gap-2 rounded-xl px-6 py-4 text-base font-semibold text-white shadow-hover transition hover:opacity-90"
-              style={{ background: "oklch(0.62 0.17 150)" }}
-            >
-              <WhatsAppIcon className="h-5 w-5" /> Order with WhatsApp
-            </button>
-            <button
-              type="button"
-              onClick={onEmailClick}
+              onClick={onAddToCart}
               className="inline-flex w-full items-center justify-center gap-2 rounded-xl px-6 py-4 text-base font-semibold text-white shadow-hover transition hover:opacity-90"
               style={{ background: "var(--navy)" }}
             >
-              <Mail className="h-5 w-5" /> Order by Email
+              <ShoppingCart className="h-5 w-5" /> Add to Cart
             </button>
             <button
               type="button"
@@ -180,14 +133,6 @@ function ProductPage() {
           <p className="mt-3 text-muted-foreground leading-relaxed">{product.longDescription}</p>
         </div>
       )}
-      <PhoneCaptureModal
-        open={orderChannel !== null}
-        onClose={() => setOrderChannel(null)}
-        onConfirm={onPhoneConfirm}
-        confirmLabel={orderChannel === "email" ? "Continue to Email" : "Continue to WhatsApp"}
-        defaultName={user?.name ?? ""}
-        defaultPhone={user?.phone ?? ""}
-      />
     </div>
   );
 }
